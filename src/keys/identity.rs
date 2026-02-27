@@ -1,44 +1,10 @@
+//! Identity signing and verifying keys (Ed25519 + ML-DSA-65 hybrid).
+
 use ml_dsa::{KeyGen, MlDsa65};
 use zeroize::ZeroizeOnDrop;
 
 use crate::error::CryptoError;
-
-/// PQ-Hybrid signature: always contains both Ed25519 and ML-DSA-65 components.
-/// Both must verify for the signature to be considered valid.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct HybridSignature {
-    #[serde(with = "serde_bytes")]
-    pub ed25519: [u8; 64],
-    #[serde(with = "serde_bytes")]
-    pub ml_dsa: Vec<u8>,
-}
-
-impl HybridSignature {
-    pub const ED25519_LEN: usize = 64;
-    pub const ML_DSA_65_LEN: usize = 3_309;
-
-    /// Serialize to bytes: ed25519 (64) || ml_dsa (3309).
-    pub fn to_bytes(&self) -> Vec<u8> {
-        let mut out = Vec::with_capacity(Self::ED25519_LEN + self.ml_dsa.len());
-        out.extend_from_slice(&self.ed25519);
-        out.extend_from_slice(&self.ml_dsa);
-        out
-    }
-
-    /// Deserialize from bytes: ed25519 (64) || ml_dsa (remainder).
-    pub fn from_bytes(bytes: &[u8]) -> Result<Self, CryptoError> {
-        if bytes.len() < Self::ED25519_LEN + Self::ML_DSA_65_LEN {
-            return Err(CryptoError::InvalidKeyLength {
-                expected: Self::ED25519_LEN + Self::ML_DSA_65_LEN,
-                got: bytes.len(),
-            });
-        }
-        let mut ed25519 = [0u8; 64];
-        ed25519.copy_from_slice(&bytes[..64]);
-        let ml_dsa = bytes[64..].to_vec();
-        Ok(Self { ed25519, ml_dsa })
-    }
-}
+use crate::ops::signing::{arr_from_bytes, hybrid_sign, hybrid_verify, HybridSignature};
 
 /// Identity Signing Key — Ed25519 + ML-DSA-65 hybrid.
 ///
@@ -72,17 +38,7 @@ impl IdentitySigningKey {
 
     /// Produce a hybrid signature over `msg`.
     pub fn sign(&self, msg: &[u8]) -> HybridSignature {
-        use ed25519_dalek::Signer as _;
-        use ml_dsa::signature::SignatureEncoding as _;
-
-        let ed_sig = self.ed25519.sign(msg);
-        let pq_sig: ml_dsa::Signature<MlDsa65> =
-            ml_dsa::signature::Signer::sign(&self.ml_dsa_signing, msg);
-
-        HybridSignature {
-            ed25519: ed_sig.to_bytes(),
-            ml_dsa: pq_sig.to_bytes().to_vec(),
-        }
+        hybrid_sign(&self.ed25519, &self.ml_dsa_signing, msg)
     }
 
     /// Extract the corresponding verifying key.
@@ -117,32 +73,11 @@ pub struct IdentityVerifyingKey {
 impl IdentityVerifyingKey {
     /// Verify a hybrid signature: both Ed25519 and ML-DSA-65 must pass.
     pub fn verify(&self, msg: &[u8], sig: &HybridSignature) -> Result<(), CryptoError> {
-        use ed25519_dalek::Verifier as _;
-
-        let ed_sig = ed25519_dalek::Signature::from_bytes(&sig.ed25519);
-        self.ed25519
-            .verify(msg, &ed_sig)
-            .map_err(|_| CryptoError::Ed25519VerifyFailed)?;
-
-        let pq_sig = <ml_dsa::Signature<MlDsa65>>::try_from(sig.ml_dsa.as_slice())
-            .map_err(|_| CryptoError::MlDsaVerifyFailed)?;
-        ml_dsa::signature::Verifier::verify(&self.ml_dsa, msg, &pq_sig)
-            .map_err(|_| CryptoError::MlDsaVerifyFailed)?;
-
-        Ok(())
+        hybrid_verify(&self.ed25519, &self.ml_dsa, msg, sig)
     }
 
     /// Access the raw Ed25519 public key bytes (for DID encoding).
     pub fn ed25519_bytes(&self) -> [u8; 32] {
         self.ed25519.to_bytes()
     }
-}
-
-// --- Helpers ---
-
-/// Construct a `B32` (`Array<u8, U32>`) from a `[u8; 32]`.
-pub(crate) fn arr_from_bytes(bytes: [u8; 32]) -> ml_dsa::B32 {
-    let mut arr = ml_dsa::B32::default();
-    arr.copy_from_slice(&bytes);
-    arr
 }

@@ -1,12 +1,14 @@
+//! `did:key` encoding and decoding for Ed25519 public keys.
+
 use crate::error::CryptoError;
-use crate::signing::HybridSignature;
+use crate::ops::signing::HybridSignature;
 
 /// Multicodec prefix for Ed25519 public keys: 0xed01 (varint-encoded as two bytes).
 const ED25519_MULTICODEC: [u8; 2] = [0xed, 0x01];
 
 /// Encode an Ed25519 public key as a `did:key` string.
 ///
-/// Format: `did:key:z` + base58btc(multicodec_prefix || public_key_bytes)
+/// Format: `did:key:z` + base58btc(multicodec\_prefix || public\_key\_bytes)
 pub fn ed25519_to_did_key(pk: &[u8; 32]) -> String {
     let mut prefixed = Vec::with_capacity(2 + 32);
     prefixed.extend_from_slice(&ED25519_MULTICODEC);

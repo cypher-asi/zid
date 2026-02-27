@@ -1,20 +1,30 @@
+//! Hybrid key encapsulation: X25519 + ML-KEM-768.
+//!
+//! Both classical (X25519) and post-quantum (ML-KEM-768) shared secrets are
+//! combined via HKDF to produce the final [`SharedSecret`].
+
 use ml_kem::kem::{Decapsulate, Encapsulate};
 use ml_kem::MlKem768;
 use rand_core::OsRng;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
-use crate::derivation::hkdf_derive_32;
 use crate::error::CryptoError;
-use crate::machine_key::{MachineKeyPair, MachinePublicKey};
+use crate::keys::machine::{MachineKeyPair, MachinePublicKey};
+use crate::ops::derivation::hkdf_derive_32;
 
 /// ML-KEM-768 ciphertext length in bytes.
 const ML_KEM_768_CT_LEN: usize = 1_088;
 
 /// Combined shared secret from hybrid X25519 + ML-KEM-768 key agreement.
 #[derive(Zeroize, ZeroizeOnDrop)]
-pub struct SharedSecret(pub(crate) [u8; 32]);
+pub struct SharedSecret([u8; 32]);
 
 impl SharedSecret {
+    pub(crate) fn new(bytes: [u8; 32]) -> Self {
+        Self(bytes)
+    }
+
+    /// Access the 32-byte shared secret.
     pub fn as_bytes(&self) -> &[u8; 32] {
         &self.0
     }
@@ -30,12 +40,14 @@ impl core::fmt::Debug for SharedSecret {
 /// and the ML-KEM-768 ciphertext.
 #[derive(Debug, Clone)]
 pub struct EncapBundle {
+    /// Sender's ephemeral X25519 public key.
     pub x25519_public: [u8; 32],
+    /// ML-KEM-768 ciphertext (1 088 bytes).
     pub mlkem_ciphertext: Vec<u8>,
 }
 
 impl EncapBundle {
-    /// Serialize to bytes: x25519_public (32) || mlkem_ciphertext (1088).
+    /// Serialize to bytes: x25519\_public (32) || mlkem\_ciphertext (1088).
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut out = Vec::with_capacity(32 + self.mlkem_ciphertext.len());
         out.extend_from_slice(&self.x25519_public);
@@ -76,10 +88,11 @@ impl MachinePublicKey {
             return Err(CryptoError::X25519ZeroSharedSecret);
         }
 
+        // ML-KEM-768 encapsulation cannot fail per FIPS 203 §7.2.
         let (mlkem_ct, mlkem_ss): (ml_kem::Ciphertext<MlKem768>, ml_kem::SharedKey<MlKem768>) =
             self.ml_kem_encap
                 .encapsulate(&mut OsRng)
-                .expect("ML-KEM-768 encapsulation is infallible");
+                .expect("infallible per FIPS 203");
 
         let mut mlkem_bytes = [0u8; 32];
         mlkem_bytes.copy_from_slice(mlkem_ss.as_ref());
@@ -91,7 +104,7 @@ impl MachinePublicKey {
             mlkem_ciphertext: AsRef::<[u8]>::as_ref(&mlkem_ct).to_vec(),
         };
 
-        Ok((SharedSecret(combined), bundle))
+        Ok((SharedSecret::new(combined), bundle))
     }
 }
 
@@ -130,11 +143,10 @@ impl MachineKeyPair {
         let mut mlkem_bytes = [0u8; 32];
         mlkem_bytes.copy_from_slice(mlkem_ss.as_ref());
         let combined = combine_shared_secrets(x25519_bytes, &mlkem_bytes)?;
-        Ok(SharedSecret(combined))
+        Ok(SharedSecret::new(combined))
     }
 }
 
-/// HKDF-combine two shared secrets into a single 32-byte key.
 fn combine_shared_secrets(x25519_ss: &[u8], mlkem_ss: &[u8]) -> Result<[u8; 32], CryptoError> {
     let mut ikm = Vec::with_capacity(x25519_ss.len() + mlkem_ss.len());
     ikm.extend_from_slice(x25519_ss);

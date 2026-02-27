@@ -1,3 +1,5 @@
+//! Root secret (NeuralKey) from which all keys are derived.
+
 use rand_core::{CryptoRng, RngCore};
 use zeroize::{Zeroize, ZeroizeOnDrop};
 

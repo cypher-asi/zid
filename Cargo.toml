@@ -2,13 +2,20 @@
 name = "zid"
 version = "0.2.0"
 edition = "2021"
+rust-version = "1.75"
 description = "PQ-Hybrid key generation, HKDF derivation, Ed25519 + ML-DSA-65 signing, ML-KEM-768 encapsulation (zero-id compatible)"
 license = "MIT OR Apache-2.0"
+keywords = ["cryptography", "post-quantum", "hybrid", "identity", "did"]
+categories = ["cryptography", "authentication"]
 
 [lib]
 name = "zid"
 
 [features]
+default = ["serde", "did", "shamir"]
+serde = ["dep:serde", "dep:serde_bytes"]
+did = ["dep:bs58"]
+shamir = ["dep:shamir-vault", "dep:hex"]
 testkit = []
 
 [dependencies]
@@ -22,12 +29,14 @@ zeroize = { version = "1", features = ["derive"] }
 rand_core = { version = "0.6", features = ["getrandom"] }
 rand = "0.8"
 bitflags = "2"
-bs58 = "0.5"
-hex = "0.4"
-serde = { version = "1", features = ["derive"] }
-serde_bytes = "0.11"
 thiserror = "2"
-shamir-vault = "1.3"
+
+# Optional deps gated by features
+bs58 = { version = "0.5", optional = true }
+hex = { version = "0.4", optional = true }
+serde = { version = "1", features = ["derive"], optional = true }
+serde_bytes = { version = "0.11", optional = true }
+shamir-vault = { version = "1.3", optional = true }
 
 [dev-dependencies]
 zid = { path = ".", features = ["testkit"] }

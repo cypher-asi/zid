@@ -1,16 +1,24 @@
+//! Machine key pairs and capabilities (Ed25519 + ML-DSA-65 signing,
+//! X25519 + ML-KEM-768 encryption).
+
 use bitflags::bitflags;
 use ml_dsa::{KeyGen, MlDsa65};
 use ml_kem::{KemCore, MlKem768};
 
 use crate::error::CryptoError;
-use crate::signing::{arr_from_bytes, HybridSignature};
+use crate::ops::signing::{arr_from_bytes, hybrid_sign, hybrid_verify, HybridSignature};
 
 bitflags! {
+    /// Capability flags for a machine key pair.
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub struct MachineKeyCapabilities: u8 {
+        /// Machine may produce signatures.
         const SIGN    = 0x01;
+        /// Machine may encrypt/decapsulate.
         const ENCRYPT = 0x02;
+        /// Machine may write to storage.
         const STORE   = 0x04;
+        /// Machine may read from storage.
         const FETCH   = 0x08;
     }
 }
@@ -39,7 +47,7 @@ impl MachineKeyPair {
         pq_encrypt_seed: [u8; 32],
         capabilities: MachineKeyCapabilities,
         epoch: u64,
-    ) -> Self {
+    ) -> Result<Self, CryptoError> {
         let ed25519_signing = ed25519_dalek::SigningKey::from_bytes(&sign_seed);
         let x25519_secret = x25519_dalek::StaticSecret::from(encrypt_seed);
 
@@ -47,9 +55,9 @@ impl MachineKeyPair {
         let ml_dsa_verifying = ml_dsa_kp.verifying_key().clone();
         let ml_dsa_signing = ml_dsa_kp.signing_key().clone();
 
-        let (ml_kem_decap, ml_kem_encap) = generate_mlkem_deterministic(&pq_encrypt_seed);
+        let (ml_kem_decap, ml_kem_encap) = generate_mlkem_deterministic(&pq_encrypt_seed)?;
 
-        Self {
+        Ok(Self {
             ed25519_signing,
             x25519_secret,
             ml_dsa_signing,
@@ -58,22 +66,12 @@ impl MachineKeyPair {
             ml_kem_encap,
             capabilities,
             epoch,
-        }
+        })
     }
 
     /// Produce a hybrid signature (Ed25519 + ML-DSA-65) over `msg`.
     pub fn sign(&self, msg: &[u8]) -> HybridSignature {
-        use ed25519_dalek::Signer as _;
-        use ml_dsa::signature::SignatureEncoding as _;
-
-        let ed_sig = self.ed25519_signing.sign(msg);
-        let pq_sig: ml_dsa::Signature<MlDsa65> =
-            ml_dsa::signature::Signer::sign(&self.ml_dsa_signing, msg);
-
-        HybridSignature {
-            ed25519: ed_sig.to_bytes(),
-            ml_dsa: pq_sig.to_bytes().to_vec(),
-        }
+        hybrid_sign(&self.ed25519_signing, &self.ml_dsa_signing, msg)
     }
 
     /// Extract the corresponding public key.
@@ -96,10 +94,12 @@ impl MachineKeyPair {
         }
     }
 
+    /// The capability flags granted to this machine.
     pub fn capabilities(&self) -> MachineKeyCapabilities {
         self.capabilities
     }
 
+    /// The epoch (rotation counter) for this machine key set.
     pub fn epoch(&self) -> u64 {
         self.epoch
     }
@@ -131,19 +131,7 @@ pub struct MachinePublicKey {
 impl MachinePublicKey {
     /// Verify a hybrid signature: both Ed25519 and ML-DSA-65 must pass.
     pub fn verify(&self, msg: &[u8], sig: &HybridSignature) -> Result<(), CryptoError> {
-        use ed25519_dalek::Verifier as _;
-
-        let ed_sig = ed25519_dalek::Signature::from_bytes(&sig.ed25519);
-        self.ed25519_verifying
-            .verify(msg, &ed_sig)
-            .map_err(|_| CryptoError::Ed25519VerifyFailed)?;
-
-        let pq_sig = <ml_dsa::Signature<MlDsa65>>::try_from(sig.ml_dsa.as_slice())
-            .map_err(|_| CryptoError::MlDsaVerifyFailed)?;
-        ml_dsa::signature::Verifier::verify(&self.ml_dsa_verifying, msg, &pq_sig)
-            .map_err(|_| CryptoError::MlDsaVerifyFailed)?;
-
-        Ok(())
+        hybrid_verify(&self.ed25519_verifying, &self.ml_dsa_verifying, msg, sig)
     }
 
     /// Access the raw Ed25519 public key bytes (for DID encoding).
@@ -151,10 +139,12 @@ impl MachinePublicKey {
         self.ed25519_verifying.to_bytes()
     }
 
+    /// The capability flags granted to this machine.
     pub fn capabilities(&self) -> MachineKeyCapabilities {
         self.capabilities
     }
 
+    /// The epoch (rotation counter) for this machine key set.
     pub fn epoch(&self) -> u64 {
         self.epoch
     }
@@ -163,22 +153,22 @@ impl MachinePublicKey {
 /// Deterministically generate ML-KEM-768 keys from a 32-byte seed.
 fn generate_mlkem_deterministic(
     seed: &[u8; 32],
-) -> (
-    <MlKem768 as KemCore>::DecapsulationKey,
-    <MlKem768 as KemCore>::EncapsulationKey,
-) {
-    let d = crate::derivation::hkdf_derive_32(seed, b"mlkem768:d")
-        .expect("HKDF-SHA256 expand to 32 bytes is infallible");
-    let z = crate::derivation::hkdf_derive_32(seed, b"mlkem768:z")
-        .expect("HKDF-SHA256 expand to 32 bytes is infallible");
+) -> Result<
+    (
+        <MlKem768 as KemCore>::DecapsulationKey,
+        <MlKem768 as KemCore>::EncapsulationKey,
+    ),
+    CryptoError,
+> {
+    let d = crate::ops::derivation::hkdf_derive_32(seed, b"mlkem768:d")?;
+    let z = crate::ops::derivation::hkdf_derive_32(seed, b"mlkem768:z")?;
 
     let d_b32 = mlkem_b32_from_bytes(d);
     let z_b32 = mlkem_b32_from_bytes(z);
 
-    MlKem768::generate_deterministic(&d_b32, &z_b32)
+    Ok(MlKem768::generate_deterministic(&d_b32, &z_b32))
 }
 
-/// Construct an ml-kem `B32` from a `[u8; 32]`.
 fn mlkem_b32_from_bytes(bytes: [u8; 32]) -> ml_kem::B32 {
     let mut arr = ml_kem::B32::default();
     arr.copy_from_slice(&bytes);
