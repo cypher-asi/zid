@@ -16,6 +16,8 @@ default = ["serde", "did", "shamir"]
 serde = ["dep:serde", "dep:serde_bytes"]
 did = ["dep:bs58"]
 shamir = ["dep:shamir-vault", "dep:hex"]
+uuid = ["dep:uuid"]
+server = []
 testkit = []
 
 [dependencies]
@@ -37,6 +39,7 @@ hex = { version = "0.4", optional = true }
 serde = { version = "1", features = ["derive"], optional = true }
 serde_bytes = { version = "0.11", optional = true }
 shamir-vault = { version = "1.3", optional = true }
+uuid = { version = "1", optional = true }
 
 [dev-dependencies]
 zid = { path = ".", features = ["testkit"] }

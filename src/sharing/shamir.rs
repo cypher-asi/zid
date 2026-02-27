@@ -24,6 +24,24 @@ impl ShamirShare {
         hex::encode(raw)
     }
 
+    /// Encode this share as raw bytes (index byte prepended).
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut raw = vec![self.index];
+        raw.extend_from_slice(&self.data);
+        raw
+    }
+
+    /// Decode a share from raw bytes produced by [`to_bytes`](Self::to_bytes).
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, CryptoError> {
+        if bytes.is_empty() {
+            return Err(CryptoError::ShamirRecoveryFailed("share is empty".into()));
+        }
+        Ok(Self {
+            index: bytes[0],
+            data: bytes[1..].to_vec(),
+        })
+    }
+
     /// Decode a share from a hex string produced by [`to_hex`](Self::to_hex).
     pub fn from_hex(h: &str) -> Result<Self, CryptoError> {
         let raw = hex::decode(h)
@@ -48,7 +66,7 @@ impl core::fmt::Debug for ShamirShare {
 }
 
 /// Split a 32-byte secret into `total` shares with `threshold` required for reconstruction.
-pub(crate) fn split(
+pub fn split(
     secret: &[u8; 32],
     total: usize,
     threshold: usize,
@@ -84,7 +102,7 @@ pub(crate) fn split(
 }
 
 /// Combine threshold-or-more shares back into a 32-byte secret.
-pub(crate) fn combine(shares: &[ShamirShare]) -> Result<[u8; 32], CryptoError> {
+pub fn combine(shares: &[ShamirShare]) -> Result<[u8; 32], CryptoError> {
     if shares.is_empty() {
         return Err(CryptoError::ShamirRecoveryFailed(
             "no shares provided".into(),

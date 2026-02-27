@@ -21,7 +21,8 @@ pub struct IdentitySigningKey {
 }
 
 impl IdentitySigningKey {
-    pub(crate) fn from_seeds(ed25519_seed: [u8; 32], ml_dsa_seed: [u8; 32]) -> Self {
+    /// Construct from pre-derived Ed25519 and ML-DSA-65 seed material.
+    pub fn from_seeds(ed25519_seed: [u8; 32], ml_dsa_seed: [u8; 32]) -> Self {
         let ed25519 = ed25519_dalek::SigningKey::from_bytes(&ed25519_seed);
 
         let ml_dsa_b32 = arr_from_bytes(ml_dsa_seed);

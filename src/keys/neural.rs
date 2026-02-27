@@ -8,28 +8,28 @@ use zeroize::{Zeroize, ZeroizeOnDrop};
 /// Generated via CSPRNG. Must be stored securely (e.g. encrypted at rest,
 /// Shamir-split for recovery). Zeroized on drop.
 #[derive(Zeroize, ZeroizeOnDrop)]
-pub(crate) struct NeuralKey([u8; 32]);
+pub struct NeuralKey([u8; 32]);
 
 impl NeuralKey {
     /// Generate a new NeuralKey from a cryptographically secure RNG.
-    pub(crate) fn generate(rng: &mut (impl RngCore + CryptoRng)) -> Self {
+    pub fn generate(rng: &mut (impl RngCore + CryptoRng)) -> Self {
         let mut bytes = [0u8; 32];
         rng.fill_bytes(&mut bytes);
         Self(bytes)
     }
 
     /// Access the raw key material (for HKDF derivation only).
-    pub(crate) fn as_bytes(&self) -> &[u8; 32] {
+    pub fn as_bytes(&self) -> &[u8; 32] {
         &self.0
     }
 
     /// Copy the raw key material (needed by Shamir split).
-    pub(crate) fn to_bytes(&self) -> [u8; 32] {
+    pub fn to_bytes(&self) -> [u8; 32] {
         self.0
     }
 
     /// Reconstruct a NeuralKey from raw bytes (e.g. after Shamir recovery).
-    pub(crate) fn from_bytes(bytes: [u8; 32]) -> Self {
+    pub fn from_bytes(bytes: [u8; 32]) -> Self {
         Self(bytes)
     }
 }

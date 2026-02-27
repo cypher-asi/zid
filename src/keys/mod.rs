@@ -2,4 +2,4 @@
 
 pub mod identity;
 pub mod machine;
-pub(crate) mod neural;
+pub mod neural;

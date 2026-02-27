@@ -11,15 +11,77 @@ use crate::ops::signing::{arr_from_bytes, hybrid_sign, hybrid_verify, HybridSign
 bitflags! {
     /// Capability flags for a machine key pair.
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    pub struct MachineKeyCapabilities: u8 {
+    pub struct MachineKeyCapabilities: u32 {
+        /// Machine may authenticate to the identity service.
+        const AUTHENTICATE    = 0x01;
         /// Machine may produce signatures.
-        const SIGN    = 0x01;
+        const SIGN            = 0x02;
         /// Machine may encrypt/decapsulate.
-        const ENCRYPT = 0x02;
+        const ENCRYPT         = 0x04;
+        /// Machine may unwrap vault keys (zero-vault).
+        const SVK_UNWRAP      = 0x08;
+        /// Machine may participate in MLS groups.
+        const MLS_MESSAGING   = 0x10;
+        /// Machine may access zero-vault operations.
+        const VAULT_OPERATIONS = 0x20;
         /// Machine may write to storage.
-        const STORE   = 0x04;
+        const STORE           = 0x40;
         /// Machine may read from storage.
-        const FETCH   = 0x08;
+        const FETCH           = 0x80;
+
+        /// Full device capabilities (all operations).
+        const FULL_DEVICE = Self::AUTHENTICATE.bits()
+            | Self::SIGN.bits()
+            | Self::ENCRYPT.bits()
+            | Self::SVK_UNWRAP.bits()
+            | Self::MLS_MESSAGING.bits()
+            | Self::VAULT_OPERATIONS.bits()
+            | Self::STORE.bits()
+            | Self::FETCH.bits();
+
+        /// Service machine capabilities (no MLS).
+        const SERVICE_MACHINE = Self::AUTHENTICATE.bits()
+            | Self::SIGN.bits()
+            | Self::VAULT_OPERATIONS.bits();
+
+        /// Limited device capabilities (no vault access).
+        const LIMITED_DEVICE = Self::AUTHENTICATE.bits()
+            | Self::SIGN.bits()
+            | Self::MLS_MESSAGING.bits();
+
+        /// Service access alias.
+        const SERVICE_ACCESS = Self::SERVICE_MACHINE.bits();
+    }
+}
+
+impl MachineKeyCapabilities {
+    /// Convert capabilities to a vector of string names.
+    pub fn to_string_vec(&self) -> Vec<String> {
+        let mut caps = Vec::new();
+        if self.contains(Self::AUTHENTICATE) { caps.push("AUTHENTICATE".to_string()); }
+        if self.contains(Self::SIGN) { caps.push("SIGN".to_string()); }
+        if self.contains(Self::ENCRYPT) { caps.push("ENCRYPT".to_string()); }
+        if self.contains(Self::SVK_UNWRAP) { caps.push("SVK_UNWRAP".to_string()); }
+        if self.contains(Self::MLS_MESSAGING) { caps.push("MLS_MESSAGING".to_string()); }
+        if self.contains(Self::VAULT_OPERATIONS) { caps.push("VAULT_OPERATIONS".to_string()); }
+        if self.contains(Self::STORE) { caps.push("STORE".to_string()); }
+        if self.contains(Self::FETCH) { caps.push("FETCH".to_string()); }
+        caps
+    }
+}
+
+#[cfg(feature = "serde")]
+impl serde::Serialize for MachineKeyCapabilities {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        self.bits().serialize(serializer)
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'de> serde::Deserialize<'de> for MachineKeyCapabilities {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let bits = u32::deserialize(deserializer)?;
+        Ok(MachineKeyCapabilities::from_bits_truncate(bits))
     }
 }
 
@@ -40,7 +102,7 @@ pub struct MachineKeyPair {
 
 impl MachineKeyPair {
     /// Construct from pre-derived seed material.
-    pub(crate) fn from_seeds(
+    pub fn from_seeds(
         sign_seed: [u8; 32],
         encrypt_seed: [u8; 32],
         pq_sign_seed: [u8; 32],
@@ -94,6 +156,11 @@ impl MachineKeyPair {
         }
     }
 
+    /// Access the raw Ed25519 signing key (for Ed25519-only signature operations).
+    pub fn ed25519_signing_key(&self) -> &ed25519_dalek::SigningKey {
+        &self.ed25519_signing
+    }
+
     /// The capability flags granted to this machine.
     pub fn capabilities(&self) -> MachineKeyCapabilities {
         self.capabilities
@@ -134,9 +201,27 @@ impl MachinePublicKey {
         hybrid_verify(&self.ed25519_verifying, &self.ml_dsa_verifying, msg, sig)
     }
 
-    /// Access the raw Ed25519 public key bytes (for DID encoding).
+    /// Access the raw Ed25519 public key bytes (signing).
     pub fn ed25519_bytes(&self) -> [u8; 32] {
         self.ed25519_verifying.to_bytes()
+    }
+
+    /// Access the raw X25519 public key bytes (encryption).
+    pub fn x25519_bytes(&self) -> [u8; 32] {
+        self.x25519_public.to_bytes()
+    }
+
+    /// Access the ML-DSA-65 verifying key bytes (PQ signing, 1952 bytes).
+    pub fn ml_dsa_bytes(&self) -> Vec<u8> {
+        let encoded = self.ml_dsa_verifying.encode();
+        let slice: &[u8] = encoded.as_ref();
+        slice.to_vec()
+    }
+
+    /// Access the ML-KEM-768 encapsulation key bytes (PQ encryption, 1184 bytes).
+    pub fn ml_kem_bytes(&self) -> Vec<u8> {
+        use ml_kem::EncodedSizeUser as _;
+        self.ml_kem_encap.as_bytes().to_vec()
     }
 
     /// The capability flags granted to this machine.
