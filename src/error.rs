@@ -70,4 +70,15 @@ pub enum CryptoError {
         /// Detail message.
         String,
     ),
+
+    /// NeuralKey has insufficient entropy (weak randomness detected).
+    #[error("insufficient entropy: {0}")]
+    InsufficientEntropy(
+        /// Detail message.
+        String,
+    ),
+
+    /// NeuralKey commitment mismatch after Shamir reconstruction.
+    #[error("Neural Key commitment mismatch: reconstructed key does not match stored commitment")]
+    CommitmentMismatch,
 }
