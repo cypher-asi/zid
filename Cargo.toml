@@ -4,7 +4,7 @@ version = "0.2.0"
 edition = "2021"
 rust-version = "1.75"
 description = "PQ-Hybrid key generation, HKDF derivation, Ed25519 + ML-DSA-65 signing, ML-KEM-768 encapsulation (zero-id compatible)"
-license = "MIT OR Apache-2.0"
+license = "MIT"
 keywords = ["cryptography", "post-quantum", "hybrid", "identity", "did"]
 categories = ["cryptography", "authentication"]
 
