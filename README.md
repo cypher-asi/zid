@@ -4,17 +4,28 @@ A post-quantum identity library for identity and machine key management.
 
 ## Core Terminology
 
+### Root & Recovery
+
 - **NeuralKey** — 256-bit root secret (CSPRNG), from which all keys are deterministically derived via HKDF-SHA256. Zeroized on drop.
+- **ShamirShare** — Opaque threshold share of the NeuralKey; hex-serializable for transport/storage.
+
+### Identity
+
 - **IdentityId** — 128-bit identifier that scopes an identity's key derivation domain.
 - **IdentitySigningKey / IdentityVerifyingKey** — Ed25519 + ML-DSA-65 hybrid keypair for signing and verification.
+- **DID** — `did:key` encoding of an Ed25519 public key (multicodec `0xed01` + base58btc).
+
+### Machine
+
 - **MachineId** — 128-bit identifier for a device/machine.
 - **MachineKeyPair / MachinePublicKey** — Full hybrid key set per machine: Ed25519 + ML-DSA-65 (signing) and X25519 + ML-KEM-768 (encryption).
 - **MachineKeyCapabilities** — Bitflags (`SIGN`, `ENCRYPT`, `STORE`, `FETCH`) controlling what a machine key may do.
 - **Epoch** — Rotation counter; changing epoch produces a fresh machine key set from the same NeuralKey.
+
+### Signing & Encryption
+
 - **HybridSignature** — Signature containing both Ed25519 (64 B) and ML-DSA-65 (3 309 B) components; both must verify.
 - **Hybrid KEM** — Key encapsulation combining X25519 DH + ML-KEM-768, with shared secrets HKDF-combined.
-- **ShamirShare** — Opaque threshold share of the NeuralKey; hex-serializable for transport/storage.
-- **DID** — `did:key` encoding of an Ed25519 public key (multicodec `0xed01` + base58btc).
 
 ## Key Structure
 
